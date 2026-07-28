@@ -495,6 +495,7 @@ body{font-family:'Inter',sans-serif;background:#F4F6F9;margin:0;display:flex;fle
       <button class="sb-item" onclick="nav('politica',this)"><span class="emo">📜</span>Política de Estoque</button>
       <button class="sb-item" onclick="nav('sugestoes',this)"><span class="emo">💬</span>Sugestões<span class="sb-badge" id="sugBadge" style="display:none">0</span></button>
       <div class="sb-section admin-only" style="display:none">Administração</div>
+      <button class="sb-item admin-only" style="display:none" onclick="nav('estoque',this)"><span class="emo">📦</span>Estoque</button>
       <button class="sb-item admin-only" style="display:none" onclick="nav('admin',this)"><span class="emo">⚙</span>Usuários</button>
     </nav>
     <div class="sb-bottom">
@@ -725,6 +726,40 @@ body{font-family:'Inter',sans-serif;background:#F4F6F9;margin:0;display:flex;fle
         </div>
       </div>
 
+      <!-- ESTOQUE (admin) — upload semanal da posição de estoque -->
+      <div id="view-estoque" style="display:none">
+        <div style="background:linear-gradient(135deg,#0f1f3d,#1a2f54);padding:1.5rem;margin-bottom:1.25rem;border-radius:var(--rl);display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap">
+          <div>
+            <div style="font-size:10px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:#E8611A;margin-bottom:6px">Almoxarifado · Posição de Estoque</div>
+            <div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:4px">Estoque das Obras</div>
+            <div style="font-size:13px;color:#7a90b8" id="estRefInfo">Envie a planilha do Protheus para atualizar os dados da semana</div>
+          </div>
+          <button class="btn-add" onclick="openEstoqueUpload()">⬆ Atualizar estoque da semana</button>
+        </div>
+
+        <div id="estMsg" style="display:none;padding:.9rem 1rem;border-radius:var(--r);margin-bottom:1rem;font-size:13px"></div>
+
+        <div id="estKpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:1.25rem"></div>
+
+        <div style="background:#fff;border:1px solid var(--g2);border-radius:var(--rl);padding:1.1rem;margin-bottom:1.25rem">
+          <div style="font-size:14px;font-weight:700;color:var(--navy);margin-bottom:.8rem">📈 Evolução Semanal do Valor em Estoque</div>
+          <div style="height:260px"><canvas id="estEvolChart"></canvas></div>
+        </div>
+
+        <div style="background:#fff;border:1px solid var(--g2);border-radius:var(--rl);padding:1.1rem;margin-bottom:1.25rem">
+          <div style="font-size:14px;font-weight:700;color:var(--navy);margin-bottom:.8rem">📊 Distribuição por Grupo</div>
+          <div id="estGrupos" style="overflow-x:auto"></div>
+        </div>
+
+        <div style="background:#fff;border:1px solid var(--g2);border-radius:var(--rl);padding:1.1rem">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:.8rem">
+            <div style="font-size:14px;font-weight:700;color:var(--navy)">📦 Itens em Estoque <span id="estItensCount" style="color:var(--t3);font-weight:500"></span></div>
+            <input class="fi" id="estBusca" placeholder="Buscar item por descrição, código ou grupo..." style="max-width:340px" oninput="renderEstItens()">
+          </div>
+          <div id="estItens" style="overflow-x:auto;max-height:520px;overflow-y:auto"></div>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -942,8 +977,18 @@ async function doLogout(){
   document.getElementById('lPass').value='';
   document.getElementById('sc-login').classList.add('active');
 }
+const PM={
+  dashboard:{icon:'⊞',title:'Dashboard',sub:'Painel de grupos críticos'},
+  pops:{icon:'📋',title:'Procedimentos',sub:'POPs do almoxarifado'},
+  obras:{icon:'🏗',title:'Obras',sub:'Dados e endereços das obras'},
+  equipe:{icon:'👥',title:'Equipe',sub:'Membros alocados por obra'},
+  politica:{icon:'📜',title:'Política de Estoque',sub:'Definições e obrigações'},
+  sugestoes:{icon:'💬',title:'Sugestões',sub:'Melhorias enviadas pela equipe'},
+  admin:{icon:'⚙',title:'Usuários',sub:'Gerenciar acessos ao portal'},
+  estoque:{icon:'📦',title:'Estoque',sub:'Posição de estoque das obras'}
+};
 function nav(id,btn){
-  ['dashboard','pops','obras','equipe','politica','sugestoes','admin'].forEach(v=>{const el=document.getElementById('view-'+v);if(el)el.style.display=v===id?'block':'none';});
+  ['dashboard','pops','obras','equipe','politica','sugestoes','admin','estoque'].forEach(v=>{const el=document.getElementById('view-'+v);if(el)el.style.display=v===id?'block':'none';});
   document.querySelectorAll('.sb-item').forEach(b=>b.classList.remove('active'));
   if(btn)btn.classList.add('active');
   const m=PM[id]||PM.dashboard;
@@ -963,6 +1008,7 @@ function nav(id,btn){
   if(id==='politica'){renderDefs();renderObgs();}
   if(id==='sugestoes')renderSugs();
   if(id==='admin')renderUsers();
+  if(id==='estoque')renderEstoque();
 }
 
 // DASHBOARD
@@ -1000,7 +1046,7 @@ function _showApp(){
   document.querySelectorAll('.admin-only').forEach(el=>el.style.display=isA?'flex':'none');
   nav('dashboard',document.querySelector('.sb-item'));
   updSugBadge();
-  populateSugSelect&&populateSugSelect();
+  if(typeof populateSugSelect==='function')populateSugSelect();
 }
 
 function renderDash(){
@@ -1608,6 +1654,202 @@ function _buildGrupo(id){
         <span style="font-size:11px;color:var(--t3)">Prev: ${r.prev}</span>
       </div>
     </div>`).join('') : '<p style="font-size:13px;color:var(--t3)">Nenhuma reposição em andamento.</p>';
+}
+</script>
+
+<!-- MODAL — UPLOAD DE ESTOQUE (admin) -->
+<div class="ov" id="estUpOv" onclick="if(event.target.id==='estUpOv')closeOv('estUpOv')">
+  <div class="modal modal-lg">
+    <div class="m-hdr">
+      <div class="m-top"><div><div class="m-code">Administração</div><div class="m-title">Atualizar estoque da semana</div></div><button class="m-close" onclick="closeOv('estUpOv')">✕</button></div>
+    </div>
+    <div class="m-body">
+      <div class="fg">
+        <div class="sec-div">Passo 1 — Data e planilha</div>
+        <div><label class="fl">Data de referência (semana) *</label><input type="date" class="fi" id="estUpData"></div>
+        <div><label class="fl">Planilha do Protheus (.xlsx) *</label><input type="file" class="fi" id="estUpFile" accept=".xlsx,.xls" onchange="estProcessFile()"></div>
+      </div>
+      <div id="estUpPreview" style="display:none;margin-top:1rem"></div>
+      <div id="estUpStatus" style="margin-top:1rem;font-size:13px;color:var(--t3)"></div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:1.4rem">
+        <button class="btn-o" onclick="closeOv('estUpOv')">Cancelar</button>
+        <button class="btn-prim" id="estUpSave" disabled onclick="estSaveUpload()">Salvar no banco</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// ESTOQUE — posição de estoque das obras (upload semanal, admin only)
+// ═══════════════════════════════════════════════════════════════
+
+// Mapa: código de Grupo do Protheus → Grupo Crítico do portal.
+// (ajuste aqui se algum código mudar — BAT ainda sem código nesta base)
+const EST_GRUPO_MAP={'063':'LUB','033':'BIT','030':'FLT','014':'PNE','001':'FPS'};
+const EST_CRIT={
+  LUB:{nome:'Lubrificantes',cor:'#0E7490',icon:'🛢️'},
+  BIT:{nome:'Bits',cor:'#7C3AED',icon:'⛏️'},
+  FLT:{nome:'Filtros',cor:'#1F4A78',icon:'🔩'},
+  PNE:{nome:'Pneus/Câmaras',cor:'#FF7A30',icon:'🔄'},
+  FPS:{nome:'FPS (penetração de solo)',cor:'#DC2626',icon:'🪛'},
+  BAT:{nome:'Baterias',cor:'#059669',icon:'🔋'},
+  OUTROS:{nome:'Outros insumos',cor:'#64748b',icon:'📦'}
+};
+
+let _estParsed=null;   // linhas lidas da planilha, aguardando salvar
+let _estRows=[];       // snapshot atual (semana mais recente) carregado do banco
+let _estEvol=[];       // [{data_ref, valor}] agregado por semana (para a evolução)
+const _estCharts={};
+
+function estFmt(v){return 'R$ '+Math.round(Number(v)||0).toLocaleString('pt-BR');}
+function _estDateBR(s){if(!s)return '';const p=String(s).slice(0,10).split('-');return p.length===3?p[2]+'/'+p[1]+'/'+p[0]:s;}
+function _estNum(v){if(typeof v==='number')return v;if(v==null||v==='')return 0;let s=String(v).trim();if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');const n=parseFloat(s);return isNaN(n)?0:n;}
+function estMsg(html,type){const el=document.getElementById('estMsg');if(!el)return;if(!html){el.style.display='none';return;}el.style.display='block';el.innerHTML=html;const c={info:['#eff6ff','#1e40af'],warn:['#fef3c7','#92400e'],ok:['#dcfce7','#166534'],err:['#fee2e2','#991b1b']}[type||'info'];el.style.background=c[0];el.style.color=c[1];}
+
+// Carrega o leitor de planilha (SheetJS) só quando precisa
+async function ensureSheetJS(){
+  if(window.XLSX)return window.XLSX;
+  await new Promise((res,rej)=>{const s=document.createElement('script');s.src='https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';s.onload=res;s.onerror=()=>rej(new Error('Não foi possível carregar o leitor de planilha (verifique a internet).'));document.head.appendChild(s);});
+  return window.XLSX;
+}
+
+function openEstoqueUpload(){
+  if(!sb||(CU&&CU.pass)){toast('Para enviar estoque, entre com o login real do Supabase (não o modo demo).','error');return;}
+  _estParsed=null;
+  document.getElementById('estUpData').value=new Date().toISOString().slice(0,10);
+  document.getElementById('estUpFile').value='';
+  document.getElementById('estUpPreview').style.display='none';
+  document.getElementById('estUpStatus').textContent='';
+  document.getElementById('estUpSave').disabled=true;
+  openOv('estUpOv');
+}
+
+function _estFindCol(H,...alts){for(let i=0;i<H.length;i++){const h=String(H[i]||'').toLowerCase().replace(/\s+/g,'');for(const a of alts){if(h.includes(a))return i;}}return -1;}
+
+async function estProcessFile(){
+  const f=document.getElementById('estUpFile').files[0];if(!f)return;
+  const st=document.getElementById('estUpStatus');st.textContent='Lendo planilha...';
+  try{
+    const XLSX=await ensureSheetJS();
+    const buf=await f.arrayBuffer();
+    const wb=XLSX.read(buf,{type:'array'});
+    const ws=wb.Sheets[wb.SheetNames[0]];
+    const aoa=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+    if(!aoa.length)throw new Error('Planilha vazia.');
+    const H=aoa[0];
+    // "Produto" (código) = primeira coluna com 'produto' que NÃO seja 'desc.produto'
+    let prodIdx=-1;for(let i=0;i<H.length;i++){const h=String(H[i]||'').toLowerCase();if(h.includes('produto')&&!h.includes('desc')){prodIdx=i;break;}}
+    const ci={
+      filial:_estFindCol(H,'filial'),
+      produto:prodIdx>=0?prodIdx:_estFindCol(H,'produto'),
+      armazem:_estFindCol(H,'armazem','armazém'),
+      desc:_estFindCol(H,'desc'),
+      saldo:_estFindCol(H,'saldo'),
+      preco:_estFindCol(H,'ul.prc','ulprc','prc','preco','preço'),
+      valor:_estFindCol(H,'vlr','vlr.estoque','valor'),
+      grupo:_estFindCol(H,'grupo')
+    };
+    if(ci.desc<0||ci.saldo<0||ci.grupo<0)throw new Error('Cabeçalho não reconhecido. Esperado: Filial, Produto, Armazem, Desc.Produto, Saldo Atual, Ul.Prc.Compr, Vlr.Estoque, Grupo.');
+    const rows=[];
+    for(let r=1;r<aoa.length;r++){
+      const row=aoa[r];if(!row||row.every(c=>c===''))continue;
+      const desc=String(row[ci.desc]||'').trim();const grupo=String(row[ci.grupo]||'').trim();
+      if(!desc&&!grupo)continue;
+      rows.push({filial:String(row[ci.filial]||'').trim(),produto:String(row[ci.produto]||'').trim(),armazem:String(row[ci.armazem]||'').trim(),descricao:desc,saldo:_estNum(row[ci.saldo]),preco_ult:_estNum(row[ci.preco]),valor:_estNum(row[ci.valor]),grupo:grupo});
+    }
+    if(!rows.length)throw new Error('Nenhum item encontrado na planilha.');
+    _estParsed=rows;
+    const obras=new Set(rows.map(r=>r.filial)),grupos=new Set(rows.map(r=>r.grupo));
+    const total=rows.reduce((s,r)=>s+r.valor,0);
+    const pc=(l,v)=>`<div style="background:var(--g1);border-radius:8px;padding:10px 12px"><div style="font-size:18px;font-weight:800;color:var(--navy)">${v}</div><div style="font-size:11px;color:var(--t3)">${l}</div></div>`;
+    const pv=document.getElementById('estUpPreview');pv.style.display='block';
+    pv.innerHTML='<div class="sec-div">Passo 2 — Confira antes de salvar</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px">'+pc('Itens',rows.length)+pc('Obras',obras.size)+pc('Grupos',grupos.size)+pc('Valor total',estFmt(total))+'</div>';
+    st.textContent='✓ Planilha lida. Clique em "Salvar no banco" para gravar a semana.';
+    document.getElementById('estUpSave').disabled=false;
+  }catch(e){document.getElementById('estUpStatus').innerHTML='<span style="color:#b91c1c">⚠ '+(e.message||e)+'</span>';_estParsed=null;document.getElementById('estUpSave').disabled=true;}
+}
+
+async function estSaveUpload(){
+  if(!_estParsed)return;
+  if(!sb||(CU&&CU.pass)){toast('Login real do Supabase necessário.','error');return;}
+  const dref=document.getElementById('estUpData').value;
+  if(!dref){toast('Informe a data de referência.','error');return;}
+  const btn=document.getElementById('estUpSave'),st=document.getElementById('estUpStatus');
+  btn.disabled=true;btn.textContent='Salvando...';
+  try{
+    const del=await sb.from('estoque_posicao').delete().eq('data_ref',dref);
+    if(del.error)throw del.error;
+    const payload=_estParsed.map(r=>({...r,data_ref:dref}));
+    const CH=400;let done=0;
+    for(let i=0;i<payload.length;i+=CH){const chunk=payload.slice(i,i+CH);const ins=await sb.from('estoque_posicao').insert(chunk);if(ins.error)throw ins.error;done+=chunk.length;st.textContent='Salvando... '+done+'/'+payload.length;}
+    closeOv('estUpOv');
+    toast('Estoque atualizado: '+payload.length+' itens gravados.','success');
+    await renderEstoque();
+  }catch(e){st.innerHTML='<span style="color:#b91c1c">⚠ '+(e.message||e)+'. Confirme que você é admin e que a tabela estoque_posicao foi criada (setup_estoque.sql).</span>';btn.disabled=false;}
+  btn.textContent='Salvar no banco';
+}
+
+async function renderEstoque(){
+  const ti=document.getElementById('tbIcon'),tt=document.getElementById('tbTitle'),ts=document.getElementById('tbSub');
+  if(ti)ti.textContent='📦';if(tt)tt.textContent='Estoque';if(ts)ts.textContent='Posição de estoque das obras';
+  const clear=()=>{['estKpis','estGrupos','estItens'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML='';});};
+  if(!sb||(CU&&CU.pass)){estMsg('🧪 Você está em <b>modo demo</b>. Os dados de estoque ficam no Supabase real — entre com o login do Supabase para visualizar e atualizar.','warn');clear();return;}
+  estMsg('',null);
+  try{
+    const ev=await sb.from('estoque_posicao').select('data_ref,valor');
+    if(ev.error)throw ev.error;
+    const byRef={};(ev.data||[]).forEach(r=>{byRef[r.data_ref]=(byRef[r.data_ref]||0)+Number(r.valor||0);});
+    _estEvol=Object.keys(byRef).sort().map(k=>({data_ref:k,valor:byRef[k]}));
+    if(!_estEvol.length){estMsg('Nenhum estoque enviado ainda. Clique em <b>"Atualizar estoque da semana"</b> para enviar a primeira planilha.','info');clear();_drawEstEvol();return;}
+    const latest=_estEvol[_estEvol.length-1].data_ref;
+    const snap=await sb.from('estoque_posicao').select('*').eq('data_ref',latest).order('valor',{ascending:false});
+    if(snap.error)throw snap.error;
+    _estRows=snap.data||[];
+    const info=document.getElementById('estRefInfo');if(info)info.textContent='Última atualização: '+_estDateBR(latest)+' · '+_estRows.length+' itens · '+new Set(_estRows.map(r=>r.filial)).size+' obra(s)';
+    _renderEstKpis(latest);_drawEstEvol();_renderEstGrupos();renderEstItens();
+  }catch(e){estMsg('⚠ Não foi possível carregar o estoque: '+(e.message||e)+'. Confirme que a tabela <code>estoque_posicao</code> foi criada no Supabase (rode o setup_estoque.sql).','err');clear();}
+}
+
+function _renderEstKpis(latest){
+  const rows=_estRows;const total=rows.reduce((s,r)=>s+Number(r.valor||0),0);
+  const obras=new Set(rows.map(r=>r.filial)).size,grupos=new Set(rows.map(r=>r.grupo)).size;
+  const idx=_estEvol.findIndex(e=>e.data_ref===latest),prev=idx>0?_estEvol[idx-1].valor:null;
+  let sub='Primeira semana registrada',cor='#64748b';
+  if(prev!=null){const d=total-prev,p=prev?(d/prev*100):0;sub=(d>=0?'▲ ':'▼ ')+estFmt(Math.abs(d))+' ('+(d>=0?'+':'')+p.toFixed(1)+'%) vs. semana ant.';cor=d>=0?'#059669':'#dc2626';}
+  const cards=[
+    {lbl:'Valor total em estoque',val:estFmt(total),sub:sub,cor:cor,icon:'💰'},
+    {lbl:'Itens estocados',val:rows.length.toLocaleString('pt-BR'),sub:grupos+' grupos',cor:'#64748b',icon:'📦'},
+    {lbl:'Obras com estoque',val:obras,sub:'filiais na base',cor:'#64748b',icon:'🏗'},
+    {lbl:'Semana de referência',val:_estDateBR(latest),sub:_estEvol.length+' semana(s) no histórico',cor:'#64748b',icon:'🗓'}
+  ];
+  document.getElementById('estKpis').innerHTML=cards.map(c=>`<div style="background:#fff;border:1px solid var(--g2);border-radius:var(--rl);padding:1rem"><div style="font-size:20px;margin-bottom:6px">${c.icon}</div><div style="font-size:22px;font-weight:800;color:var(--navy);line-height:1.1">${c.val}</div><div style="font-size:11px;color:var(--t3);margin-top:2px">${c.lbl}</div><div style="font-size:11px;color:${c.cor};margin-top:6px;font-weight:600">${c.sub}</div></div>`).join('');
+}
+
+function _renderEstGrupos(){
+  const agg={};
+  _estRows.forEach(r=>{const code=r.grupo||'—';const crit=EST_GRUPO_MAP[code]||'OUTROS';if(!agg[crit])agg[crit]={valor:0,itens:0,codes:new Set()};agg[crit].valor+=Number(r.valor||0);agg[crit].itens++;agg[crit].codes.add(code);});
+  const total=Object.values(agg).reduce((s,a)=>s+a.valor,0)||1;
+  const order=Object.keys(agg).sort((a,b)=>agg[b].valor-agg[a].valor);
+  const body=order.map(k=>{const a=agg[k],g=EST_CRIT[k]||EST_CRIT.OUTROS,pct=a.valor/total*100;return `<tr><td style="padding:8px 10px;font-weight:600;color:var(--navy)">${g.icon} ${g.nome} <span style="color:var(--t3);font-weight:400;font-size:11px">(${[...a.codes].sort().join(', ')})</span></td><td style="padding:8px 10px;text-align:right">${a.itens}</td><td style="padding:8px 10px;text-align:right;font-weight:700">${estFmt(a.valor)}</td><td style="padding:8px 10px;min-width:120px"><div style="background:var(--g1);border-radius:6px;height:8px;overflow:hidden"><div style="width:${pct.toFixed(1)}%;height:100%;background:${g.cor}"></div></div></td><td style="padding:8px 10px;text-align:right;color:var(--t3)">${pct.toFixed(1)}%</td></tr>`;}).join('');
+  document.getElementById('estGrupos').innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="border-bottom:2px solid var(--g2);color:var(--t3);font-size:11px;text-transform:uppercase"><th style="padding:8px 10px;text-align:left">Grupo crítico</th><th style="padding:8px 10px;text-align:right">Itens</th><th style="padding:8px 10px;text-align:right">Valor</th><th style="padding:8px 10px">Participação</th><th style="padding:8px 10px;text-align:right">%</th></tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function renderEstItens(){
+  const q=(document.getElementById('estBusca').value||'').toLowerCase().trim();
+  let rows=_estRows;
+  if(q)rows=rows.filter(r=>(r.descricao||'').toLowerCase().includes(q)||(r.produto||'').toLowerCase().includes(q)||(r.grupo||'').toLowerCase().includes(q));
+  const cnt=document.getElementById('estItensCount');if(cnt)cnt.textContent='('+rows.length+')';
+  const cap=rows.slice(0,800);
+  const body=cap.map(r=>`<tr style="border-bottom:1px solid var(--g1)"><td style="padding:6px 8px;color:var(--t3)">${r.produto||''}</td><td style="padding:6px 8px">${r.descricao||''}</td><td style="padding:6px 8px;text-align:center;color:var(--t3)">${r.grupo||''}</td><td style="padding:6px 8px;text-align:right">${Number(r.saldo||0).toLocaleString('pt-BR')}</td><td style="padding:6px 8px;text-align:right">${estFmt(r.preco_ult)}</td><td style="padding:6px 8px;text-align:right;font-weight:600">${estFmt(r.valor)}</td></tr>`).join('');
+  document.getElementById('estItens').innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="position:sticky;top:0;background:#fff;border-bottom:2px solid var(--g2);color:var(--t3);font-size:11px;text-transform:uppercase"><th style="padding:8px;text-align:left">Cód.</th><th style="padding:8px;text-align:left">Descrição</th><th style="padding:8px;text-align:center">Grupo</th><th style="padding:8px;text-align:right">Saldo</th><th style="padding:8px;text-align:right">Últ. preço</th><th style="padding:8px;text-align:right">Valor</th></tr></thead><tbody>${body}</tbody></table>`+(rows.length>800?`<div style="padding:8px;font-size:12px;color:var(--t3)">Mostrando 800 de ${rows.length}. Refine a busca para ver mais.</div>`:'');
+}
+
+function _drawEstEvol(){
+  const cv=document.getElementById('estEvolChart');if(!cv||typeof Chart==='undefined')return;
+  if(_estCharts.evol)_estCharts.evol.destroy();
+  const labels=_estEvol.map(e=>_estDateBR(e.data_ref)),data=_estEvol.map(e=>Math.round(e.valor));
+  _estCharts.evol=new Chart(cv,{type:'line',data:{labels,datasets:[{data,label:'Valor em estoque',borderColor:'#E8611A',backgroundColor:'rgba(232,97,26,.12)',borderWidth:2.5,fill:true,tension:.35,pointBackgroundColor:'#E8611A',pointRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+estFmt(c.parsed.y)}}},scales:{y:{ticks:{callback:v=>'R$ '+(v/1000).toFixed(0)+'k'}}}}});
 }
 </script>
 </body>
