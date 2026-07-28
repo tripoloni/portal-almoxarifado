@@ -739,11 +739,33 @@ body{font-family:'Inter',sans-serif;background:#F4F6F9;margin:0;display:flex;fle
 
         <div id="estMsg" style="display:none;padding:.9rem 1rem;border-radius:var(--r);margin-bottom:1rem;font-size:13px"></div>
 
+        <div id="estFilterBar" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;background:#fff;border:1px solid var(--g2);border-radius:var(--rl);padding:.7rem 1rem;margin-bottom:1.25rem">
+          <span style="font-size:13px;font-weight:600;color:var(--navy)">🏗 Obra / Filial:</span>
+          <select class="fsel" id="estFilial" onchange="estSetFilial(this.value)" style="max-width:340px"></select>
+          <span id="estFilialInfo" style="font-size:12px;color:var(--t3)"></span>
+        </div>
+
         <div id="estKpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:1.25rem"></div>
 
         <div style="background:#fff;border:1px solid var(--g2);border-radius:var(--rl);padding:1.1rem;margin-bottom:1.25rem">
           <div style="font-size:14px;font-weight:700;color:var(--navy);margin-bottom:.8rem">📈 Evolução Semanal do Valor em Estoque</div>
           <div style="height:260px"><canvas id="estEvolChart"></canvas></div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1.25rem;margin-bottom:1.25rem">
+          <div style="background:#fff;border:1px solid var(--g2);border-radius:var(--rl);padding:1.1rem">
+            <div style="font-size:14px;font-weight:700;color:var(--navy);margin-bottom:.8rem">🍩 Participação no Valor por Grupo</div>
+            <div style="height:280px"><canvas id="estDoughnut"></canvas></div>
+          </div>
+          <div style="background:#fff;border:1px solid var(--g2);border-radius:var(--rl);padding:1.1rem">
+            <div style="font-size:14px;font-weight:700;color:var(--navy);margin-bottom:.8rem">📦 Nº de Itens por Grupo</div>
+            <div style="height:280px"><canvas id="estBarGrupo"></canvas></div>
+          </div>
+        </div>
+
+        <div style="background:#fff;border:1px solid var(--g2);border-radius:var(--rl);padding:1.1rem;margin-bottom:1.25rem">
+          <div style="font-size:14px;font-weight:700;color:var(--navy);margin-bottom:.8rem">🏆 Top 10 Itens por Valor em Estoque</div>
+          <div style="height:340px"><canvas id="estTop10"></canvas></div>
         </div>
 
         <div style="background:#fff;border:1px solid var(--g2);border-radius:var(--rl);padding:1.1rem;margin-bottom:1.25rem">
@@ -1790,45 +1812,77 @@ async function estSaveUpload(){
   btn.textContent='Salvar no banco';
 }
 
+let _estFilial='__ALL__';   // filtro de obra/filial ativo
+let _estEvolRaw=[];         // linhas cruas (data_ref,valor,filial) de todas as semanas
+let _estLatest=null;        // data_ref mais recente (overall)
+
+function _estFilteredRows(){return _estFilial==='__ALL__'?_estRows:_estRows.filter(r=>r.filial===_estFilial);}
+function _estEvolFor(){const b={};_estEvolRaw.forEach(r=>{if(_estFilial!=='__ALL__'&&r.filial!==_estFilial)return;b[r.data_ref]=(b[r.data_ref]||0)+Number(r.valor||0);});return Object.keys(b).sort().map(k=>({data_ref:k,valor:b[k]}));}
+function _estAggCrit(rows){const a={};rows.forEach(r=>{const c=EST_GRUPO_MAP[r.grupo]||'OUTROS';if(!a[c])a[c]={valor:0,itens:0,codes:new Set()};a[c].valor+=Number(r.valor||0);a[c].itens++;a[c].codes.add(r.grupo||'—');});return a;}
+function _estDestroyCharts(){Object.values(_estCharts).forEach(c=>{try{c.destroy();}catch(_){}});}
+function _estCritOf(k){return EST_CRIT[k]||EST_CRIT.OUTROS;}
+
+function _populateFilialSelect(){
+  const sel=document.getElementById('estFilial'),bar=document.getElementById('estFilterBar');if(!sel)return;
+  const filiais=[...new Set(_estRows.map(r=>r.filial).filter(Boolean))].sort();
+  if(_estFilial!=='__ALL__'&&!filiais.includes(_estFilial))_estFilial='__ALL__';
+  sel.innerHTML=`<option value="__ALL__">Todas as obras (${filiais.length})</option>`+filiais.map(f=>`<option value="${String(f).replace(/"/g,'&quot;')}">${f}</option>`).join('');
+  sel.value=_estFilial;
+  if(bar)bar.style.display=filiais.length?'flex':'none';
+  _updEstFilialInfo();
+}
+function _updEstFilialInfo(){const el=document.getElementById('estFilialInfo');if(!el)return;const n=_estFilteredRows().length;el.textContent=_estFilial==='__ALL__'?(n+' itens no total'):(n+' itens nesta obra');}
+
+function estSetFilial(v){_estFilial=v;_updEstFilialInfo();_estRenderAll(_estLatest);}
+
+function _estRenderAll(latest){
+  _renderEstKpis(latest);
+  _drawEstEvol();_drawEstDoughnut();_drawEstBarGrupo();_drawEstTop10();
+  _renderEstGrupos();renderEstItens();
+}
+
 async function renderEstoque(){
   const ti=document.getElementById('tbIcon'),tt=document.getElementById('tbTitle'),ts=document.getElementById('tbSub');
   if(ti)ti.textContent='📦';if(tt)tt.textContent='Estoque';if(ts)ts.textContent='Posição de estoque das obras';
-  const clear=()=>{['estKpis','estGrupos','estItens'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML='';});};
+  const bar=document.getElementById('estFilterBar');
+  const clear=()=>{_estDestroyCharts();['estKpis','estGrupos','estItens'].forEach(id=>{const e=document.getElementById(id);if(e)e.innerHTML='';});if(bar)bar.style.display='none';};
   if(!sb||(CU&&CU.pass)){estMsg('🧪 Você está em <b>modo demo</b>. Os dados de estoque ficam no Supabase real — entre com o login do Supabase para visualizar e atualizar.','warn');clear();return;}
   estMsg('',null);
   try{
-    const ev=await sb.from('estoque_posicao').select('data_ref,valor');
+    const ev=await sb.from('estoque_posicao').select('data_ref,valor,filial');
     if(ev.error)throw ev.error;
-    const byRef={};(ev.data||[]).forEach(r=>{byRef[r.data_ref]=(byRef[r.data_ref]||0)+Number(r.valor||0);});
+    _estEvolRaw=ev.data||[];
+    const byRef={};_estEvolRaw.forEach(r=>{byRef[r.data_ref]=(byRef[r.data_ref]||0)+Number(r.valor||0);});
     _estEvol=Object.keys(byRef).sort().map(k=>({data_ref:k,valor:byRef[k]}));
-    if(!_estEvol.length){estMsg('Nenhum estoque enviado ainda. Clique em <b>"Atualizar estoque da semana"</b> para enviar a primeira planilha.','info');clear();_drawEstEvol();return;}
-    const latest=_estEvol[_estEvol.length-1].data_ref;
+    if(!_estEvol.length){estMsg('Nenhum estoque enviado ainda. Clique em <b>"Atualizar estoque da semana"</b> para enviar a primeira planilha.','info');clear();return;}
+    const latest=_estEvol[_estEvol.length-1].data_ref;_estLatest=latest;
     const snap=await sb.from('estoque_posicao').select('*').eq('data_ref',latest).order('valor',{ascending:false});
     if(snap.error)throw snap.error;
     _estRows=snap.data||[];
     const info=document.getElementById('estRefInfo');if(info)info.textContent='Última atualização: '+_estDateBR(latest)+' · '+_estRows.length+' itens · '+new Set(_estRows.map(r=>r.filial)).size+' obra(s)';
-    _renderEstKpis(latest);_drawEstEvol();_renderEstGrupos();renderEstItens();
+    _populateFilialSelect();
+    _estRenderAll(latest);
   }catch(e){estMsg('⚠ Não foi possível carregar o estoque: '+(e.message||e)+'. Confirme que a tabela <code>estoque_posicao</code> foi criada no Supabase (rode o setup_estoque.sql).','err');clear();}
 }
 
 function _renderEstKpis(latest){
-  const rows=_estRows;const total=rows.reduce((s,r)=>s+Number(r.valor||0),0);
-  const obras=new Set(rows.map(r=>r.filial)).size,grupos=new Set(rows.map(r=>r.grupo)).size;
-  const idx=_estEvol.findIndex(e=>e.data_ref===latest),prev=idx>0?_estEvol[idx-1].valor:null;
+  const rows=_estFilteredRows();const total=rows.reduce((s,r)=>s+Number(r.valor||0),0);
+  const grupos=new Set(rows.map(r=>r.grupo)).size;
+  const evol=_estEvolFor();const idx=evol.findIndex(e=>e.data_ref===latest),prev=idx>0?evol[idx-1].valor:null;
   let sub='Primeira semana registrada',cor='#64748b';
   if(prev!=null){const d=total-prev,p=prev?(d/prev*100):0;sub=(d>=0?'▲ ':'▼ ')+estFmt(Math.abs(d))+' ('+(d>=0?'+':'')+p.toFixed(1)+'%) vs. semana ant.';cor=d>=0?'#059669':'#dc2626';}
+  const obraKpi=_estFilial==='__ALL__'?{val:new Set(_estRows.map(r=>r.filial)).size,sub:'filiais na base'}:{val:String(_estFilial).split('-')[0],sub:String(_estFilial).split('-').slice(1).join('-')||'obra selecionada'};
   const cards=[
     {lbl:'Valor total em estoque',val:estFmt(total),sub:sub,cor:cor,icon:'💰'},
     {lbl:'Itens estocados',val:rows.length.toLocaleString('pt-BR'),sub:grupos+' grupos',cor:'#64748b',icon:'📦'},
-    {lbl:'Obras com estoque',val:obras,sub:'filiais na base',cor:'#64748b',icon:'🏗'},
+    {lbl:_estFilial==='__ALL__'?'Obras com estoque':'Obra selecionada',val:obraKpi.val,sub:obraKpi.sub,cor:'#64748b',icon:'🏗'},
     {lbl:'Semana de referência',val:_estDateBR(latest),sub:_estEvol.length+' semana(s) no histórico',cor:'#64748b',icon:'🗓'}
   ];
   document.getElementById('estKpis').innerHTML=cards.map(c=>`<div style="background:#fff;border:1px solid var(--g2);border-radius:var(--rl);padding:1rem"><div style="font-size:20px;margin-bottom:6px">${c.icon}</div><div style="font-size:22px;font-weight:800;color:var(--navy);line-height:1.1">${c.val}</div><div style="font-size:11px;color:var(--t3);margin-top:2px">${c.lbl}</div><div style="font-size:11px;color:${c.cor};margin-top:6px;font-weight:600">${c.sub}</div></div>`).join('');
 }
 
 function _renderEstGrupos(){
-  const agg={};
-  _estRows.forEach(r=>{const code=r.grupo||'—';const crit=EST_GRUPO_MAP[code]||'OUTROS';if(!agg[crit])agg[crit]={valor:0,itens:0,codes:new Set()};agg[crit].valor+=Number(r.valor||0);agg[crit].itens++;agg[crit].codes.add(code);});
+  const agg=_estAggCrit(_estFilteredRows());
   const total=Object.values(agg).reduce((s,a)=>s+a.valor,0)||1;
   const order=Object.keys(agg).sort((a,b)=>agg[b].valor-agg[a].valor);
   const body=order.map(k=>{const a=agg[k],g=EST_CRIT[k]||EST_CRIT.OUTROS,pct=a.valor/total*100;return `<tr><td style="padding:8px 10px;font-weight:600;color:var(--navy)">${g.icon} ${g.nome} <span style="color:var(--t3);font-weight:400;font-size:11px">(${[...a.codes].sort().join(', ')})</span></td><td style="padding:8px 10px;text-align:right">${a.itens}</td><td style="padding:8px 10px;text-align:right;font-weight:700">${estFmt(a.valor)}</td><td style="padding:8px 10px;min-width:120px"><div style="background:var(--g1);border-radius:6px;height:8px;overflow:hidden"><div style="width:${pct.toFixed(1)}%;height:100%;background:${g.cor}"></div></div></td><td style="padding:8px 10px;text-align:right;color:var(--t3)">${pct.toFixed(1)}%</td></tr>`;}).join('');
@@ -1837,7 +1891,7 @@ function _renderEstGrupos(){
 
 function renderEstItens(){
   const q=(document.getElementById('estBusca').value||'').toLowerCase().trim();
-  let rows=_estRows;
+  let rows=_estFilteredRows();
   if(q)rows=rows.filter(r=>(r.descricao||'').toLowerCase().includes(q)||(r.produto||'').toLowerCase().includes(q)||(r.grupo||'').toLowerCase().includes(q));
   const cnt=document.getElementById('estItensCount');if(cnt)cnt.textContent='('+rows.length+')';
   const cap=rows.slice(0,800);
@@ -1848,8 +1902,35 @@ function renderEstItens(){
 function _drawEstEvol(){
   const cv=document.getElementById('estEvolChart');if(!cv||typeof Chart==='undefined')return;
   if(_estCharts.evol)_estCharts.evol.destroy();
-  const labels=_estEvol.map(e=>_estDateBR(e.data_ref)),data=_estEvol.map(e=>Math.round(e.valor));
+  const evol=_estEvolFor();const labels=evol.map(e=>_estDateBR(e.data_ref)),data=evol.map(e=>Math.round(e.valor));
   _estCharts.evol=new Chart(cv,{type:'line',data:{labels,datasets:[{data,label:'Valor em estoque',borderColor:'#E8611A',backgroundColor:'rgba(232,97,26,.12)',borderWidth:2.5,fill:true,tension:.35,pointBackgroundColor:'#E8611A',pointRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+estFmt(c.parsed.y)}}},scales:{y:{ticks:{callback:v=>'R$ '+(v/1000).toFixed(0)+'k'}}}}});
+}
+
+function _drawEstDoughnut(){
+  const cv=document.getElementById('estDoughnut');if(!cv||typeof Chart==='undefined')return;
+  if(_estCharts.dough)_estCharts.dough.destroy();
+  const agg=_estAggCrit(_estFilteredRows());
+  const keys=Object.keys(agg).sort((a,b)=>agg[b].valor-agg[a].valor);
+  const labels=keys.map(k=>_estCritOf(k).nome),data=keys.map(k=>Math.round(agg[k].valor)),colors=keys.map(k=>_estCritOf(k).cor);
+  _estCharts.dough=new Chart(cv,{type:'doughnut',data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:2,borderColor:'#fff'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'58%',plugins:{legend:{position:'right',labels:{boxWidth:12,padding:8,font:{size:11}}},tooltip:{callbacks:{label:c=>{const t=c.dataset.data.reduce((s,v)=>s+v,0)||1;return ' '+c.label+': '+estFmt(c.parsed)+' ('+(c.parsed/t*100).toFixed(1)+'%)';}}}}}});
+}
+
+function _drawEstBarGrupo(){
+  const cv=document.getElementById('estBarGrupo');if(!cv||typeof Chart==='undefined')return;
+  if(_estCharts.barg)_estCharts.barg.destroy();
+  const agg=_estAggCrit(_estFilteredRows());
+  const keys=Object.keys(agg).sort((a,b)=>agg[b].itens-agg[a].itens);
+  const labels=keys.map(k=>_estCritOf(k).nome),data=keys.map(k=>agg[k].itens),colors=keys.map(k=>_estCritOf(k).cor);
+  _estCharts.barg=new Chart(cv,{type:'bar',data:{labels,datasets:[{data,backgroundColor:colors,borderRadius:5,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>' '+c.parsed.y+' itens'}}},scales:{y:{beginAtZero:true,ticks:{precision:0}},x:{ticks:{font:{size:10}}}}}});
+}
+
+function _drawEstTop10(){
+  const cv=document.getElementById('estTop10');if(!cv||typeof Chart==='undefined')return;
+  if(_estCharts.top)_estCharts.top.destroy();
+  const rows=[..._estFilteredRows()].sort((a,b)=>Number(b.valor||0)-Number(a.valor||0)).slice(0,10);
+  const labels=rows.map(r=>{const d=String(r.descricao||'').trim();return d.length>42?d.slice(0,42)+'…':d;});
+  const data=rows.map(r=>Math.round(Number(r.valor||0))),colors=rows.map(r=>_estCritOf(EST_GRUPO_MAP[r.grupo]||'OUTROS').cor);
+  _estCharts.top=new Chart(cv,{type:'bar',data:{labels,datasets:[{data,backgroundColor:colors,borderRadius:4,borderSkipped:false}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{title:c=>rows[c[0].dataIndex]?rows[c[0].dataIndex].descricao:'',label:c=>' '+estFmt(c.parsed.x)}}},scales:{x:{ticks:{callback:v=>'R$ '+(v/1000).toFixed(0)+'k'}},y:{ticks:{font:{size:10},autoSkip:false}}}}});
 }
 </script>
 </body>
