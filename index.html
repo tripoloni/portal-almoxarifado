@@ -1690,6 +1690,7 @@ function _buildGrupo(id){
         <div class="sec-div">Passo 1 — Data e planilha</div>
         <div><label class="fl">Data de referência (semana) *</label><input type="date" class="fi" id="estUpData"></div>
         <div><label class="fl">Planilha do Protheus (.xlsx) *</label><input type="file" class="fi" id="estUpFile" accept=".xlsx,.xls" onchange="estProcessFile()"></div>
+        <div class="fg-full"><label class="fl">Obra / Filial desta planilha *</label><input class="fi" id="estUpObra" list="estObraList" placeholder="Selecione ou digite a obra (ex: 01039-LUCAS DO RIO VERDE)" oninput="estValidateUp()"><datalist id="estObraList"></datalist><div style="font-size:11px;color:var(--t3);margin-top:4px">Detectada automaticamente da planilha — confirme ou ajuste. Todos os itens serão salvos nesta obra.</div></div>
       </div>
       <div id="estUpPreview" style="display:none;margin-top:1rem"></div>
       <div id="estUpStatus" style="margin-top:1rem;font-size:13px;color:var(--t3)"></div>
@@ -1736,15 +1737,26 @@ async function ensureSheetJS(){
   return window.XLSX;
 }
 
-function openEstoqueUpload(){
+let _estDbFiliais=[];   // obras já existentes no banco (para sugerir no upload)
+function _estFillObraDatalist(planilhaFiliais){
+  const dl=document.getElementById('estObraList');if(!dl)return;
+  const all=[...new Set([...(planilhaFiliais||[]),..._estDbFiliais])].filter(Boolean).sort();
+  dl.innerHTML=all.map(f=>`<option value="${String(f).replace(/"/g,'&quot;')}"></option>`).join('');
+}
+function estValidateUp(){const ok=!!_estParsed&&!!document.getElementById('estUpObra').value.trim();document.getElementById('estUpSave').disabled=!ok;}
+
+async function openEstoqueUpload(){
   if(!sb||(CU&&CU.pass)){toast('Para enviar estoque, entre com o login real do Supabase (não o modo demo).','error');return;}
   _estParsed=null;
   document.getElementById('estUpData').value=new Date().toISOString().slice(0,10);
   document.getElementById('estUpFile').value='';
+  document.getElementById('estUpObra').value='';
   document.getElementById('estUpPreview').style.display='none';
   document.getElementById('estUpStatus').textContent='';
   document.getElementById('estUpSave').disabled=true;
+  _estFillObraDatalist([]);
   openOv('estUpOv');
+  try{const r=await sb.from('estoque_posicao').select('filial');if(!r.error){_estDbFiliais=[...new Set((r.data||[]).map(x=>x.filial).filter(Boolean))].sort();_estFillObraDatalist([]);}}catch(_){}
 }
 
 function _estFindCol(H,...alts){for(let i=0;i<H.length;i++){const h=String(H[i]||'').toLowerCase().replace(/\s+/g,'');for(const a of alts){if(h.includes(a))return i;}}return -1;}
@@ -1782,13 +1794,20 @@ async function estProcessFile(){
     }
     if(!rows.length)throw new Error('Nenhum item encontrado na planilha.');
     _estParsed=rows;
-    const obras=new Set(rows.map(r=>r.filial)),grupos=new Set(rows.map(r=>r.grupo));
+    const grupos=new Set(rows.map(r=>r.grupo));
     const total=rows.reduce((s,r)=>s+r.valor,0);
+    // detecta a(s) filial(is) da planilha e pré-preenche o campo Obra
+    const cnt={};rows.forEach(r=>{if(r.filial)cnt[r.filial]=(cnt[r.filial]||0)+1;});
+    const filiaisArr=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a]);
+    const obraInput=document.getElementById('estUpObra');
+    if(!obraInput.value.trim()&&filiaisArr.length)obraInput.value=filiaisArr[0];
+    _estFillObraDatalist(filiaisArr);
     const pc=(l,v)=>`<div style="background:var(--g1);border-radius:8px;padding:10px 12px"><div style="font-size:18px;font-weight:800;color:var(--navy)">${v}</div><div style="font-size:11px;color:var(--t3)">${l}</div></div>`;
+    const warn=filiaisArr.length>1?`<div style="margin-top:8px;font-size:12px;color:#92400e;background:#fef3c7;padding:6px 10px;border-radius:6px">⚠ A planilha contém ${filiaisArr.length} filiais diferentes. Todos os itens serão salvos na obra selecionada acima.</div>`:'';
     const pv=document.getElementById('estUpPreview');pv.style.display='block';
-    pv.innerHTML='<div class="sec-div">Passo 2 — Confira antes de salvar</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px">'+pc('Itens',rows.length)+pc('Obras',obras.size)+pc('Grupos',grupos.size)+pc('Valor total',estFmt(total))+'</div>';
-    st.textContent='✓ Planilha lida. Clique em "Salvar no banco" para gravar a semana.';
-    document.getElementById('estUpSave').disabled=false;
+    pv.innerHTML='<div class="sec-div">Passo 2 — Confira antes de salvar</div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px">'+pc('Itens',rows.length)+pc('Grupos',grupos.size)+pc('Valor total',estFmt(total))+'</div>'+warn;
+    st.textContent='✓ Planilha lida. Confirme a Obra e clique em "Salvar no banco".';
+    estValidateUp();
   }catch(e){document.getElementById('estUpStatus').innerHTML='<span style="color:#b91c1c">⚠ '+(e.message||e)+'</span>';_estParsed=null;document.getElementById('estUpSave').disabled=true;}
 }
 
@@ -1797,16 +1816,19 @@ async function estSaveUpload(){
   if(!sb||(CU&&CU.pass)){toast('Login real do Supabase necessário.','error');return;}
   const dref=document.getElementById('estUpData').value;
   if(!dref){toast('Informe a data de referência.','error');return;}
+  const obra=document.getElementById('estUpObra').value.trim();
+  if(!obra){toast('Selecione a obra desta planilha.','error');return;}
   const btn=document.getElementById('estUpSave'),st=document.getElementById('estUpStatus');
   btn.disabled=true;btn.textContent='Salvando...';
   try{
-    const del=await sb.from('estoque_posicao').delete().eq('data_ref',dref);
+    // apaga só a combinação (semana + obra) — as outras obras da semana permanecem
+    const del=await sb.from('estoque_posicao').delete().eq('data_ref',dref).eq('filial',obra);
     if(del.error)throw del.error;
-    const payload=_estParsed.map(r=>({...r,data_ref:dref}));
+    const payload=_estParsed.map(r=>({...r,filial:obra,data_ref:dref}));
     const CH=400;let done=0;
     for(let i=0;i<payload.length;i+=CH){const chunk=payload.slice(i,i+CH);const ins=await sb.from('estoque_posicao').insert(chunk);if(ins.error)throw ins.error;done+=chunk.length;st.textContent='Salvando... '+done+'/'+payload.length;}
     closeOv('estUpOv');
-    toast('Estoque atualizado: '+payload.length+' itens gravados.','success');
+    toast('Obra '+obra+' atualizada: '+payload.length+' itens gravados.','success');
     await renderEstoque();
   }catch(e){st.innerHTML='<span style="color:#b91c1c">⚠ '+(e.message||e)+'. Confirme que você é admin e que a tabela estoque_posicao foi criada (setup_estoque.sql).</span>';btn.disabled=false;}
   btn.textContent='Salvar no banco';
