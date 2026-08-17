@@ -486,8 +486,8 @@ body{font-family:'Inter',sans-serif;background:#F4F6F9;margin:0;display:flex;fle
       <span id="sbRole" class="sb-role" style="display:none">ADMIN</span>
     </div>
     <nav class="sb-nav">
-      <div class="sb-section">Portal</div>
-      <button class="sb-item active" onclick="nav('dashboard',this)"><span class="emo">⊞</span>Dashboard</button>
+      <div class="sb-section" style="display:none">Portal</div>
+      <button class="sb-item" style="display:none" onclick="nav('dashboard',this)"><span class="emo">⊞</span>Dashboard</button>
       <div class="sb-section">Módulos</div>
       <button class="sb-item" onclick="nav('pops',this)"><span class="emo">📋</span>Procedimentos</button>
       <button class="sb-item" onclick="nav('obras',this)"><span class="emo">🏗</span>Obras</button>
@@ -1068,7 +1068,8 @@ function _showApp(){
   if(modeEl)modeEl.innerHTML=CU.pass?'🧪 Modo demo':'🟢 Supabase';
   document.getElementById('sbRole').style.display=isA?'inline-block':'none';
   document.querySelectorAll('.admin-only').forEach(el=>el.style.display=isA?'flex':'none');
-  nav('dashboard',document.querySelector('.sb-item'));
+  const _firstBtn=[...document.querySelectorAll('.sb-item')].find(b=>(b.getAttribute('onclick')||'').includes("nav('pops'"));
+  nav('pops',_firstBtn);
   updSugBadge();
   if(typeof populateSugSelect==='function')populateSugSelect();
 }
