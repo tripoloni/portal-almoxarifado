@@ -825,6 +825,8 @@ body{font-family:'Inter',sans-serif;background:#F4F6F9;margin:0;display:flex;fle
         <div class="fg-full"><label class="fl">Referências</label><input class="fi" id="fPref" placeholder="NR-12 · TOTVS Protheus · ISO 9001"></div>
         <div class="sec-div">Vídeo</div>
         <div class="fg-full"><label class="fl">Link SharePoint / OneDrive</label><input class="fi" id="fPvideo" placeholder="https://tripoloni.sharepoint.com/..."><div class="fhint">Deixe em branco se não houver.</div></div>
+        <div class="sec-div">Documento (Word / PDF)</div>
+        <div class="fg-full"><label class="fl">Anexar arquivo</label><input type="file" class="fi" id="fPfile" accept=".pdf,.doc,.docx"><div class="fhint" id="fPfileHint">Opcional. Word ou PDF do procedimento (máx. 20 MB). Exige login real do Supabase.</div></div>
         <div class="sec-div">Passos <button type="button" class="btn-row-add" onclick="addStepF()">+ Adicionar</button></div>
         <div class="fg-full" id="stepsWrap"></div>
         <div class="sec-div">Checklist <button type="button" class="btn-row-add" onclick="addCheckF()">+ Adicionar</button></div>
@@ -1107,7 +1109,7 @@ function renderPops(list){
         </div>
       </div>
       <div class="card-foot">
-        <div>${p.video_url?`<span class="has-video">▶ Com vídeo</span>`:`<span style="font-size:11px;color:var(--t3)">Sem vídeo</span>`}</div>
+        <div style="display:flex;gap:6px;align-items:center">${p.video_url?`<span class="has-video">▶ Vídeo</span>`:''}${p.arquivo_path?`<span class="has-video">📎 Anexo</span>`:''}${(!p.video_url&&!p.arquivo_path)?`<span style="font-size:11px;color:var(--t3)">Sem anexos</span>`:''}</div>
         <div style="display:flex;gap:5px">
           ${CU?.role==='admin'?`<button class="btn-o btn-o-b" onclick="openEditPop(${p.id})">✏ Editar</button><button class="btn-o btn-o-r" onclick="delPop(${p.id})">🗑</button>`:''}
           <button class="btn-o btn-o-n" onclick="viewPop(${p.id})">→ Abrir</button>
@@ -1135,6 +1137,7 @@ function viewPop(id){
       <div class="is"><div class="il">Objetivo</div><div class="it">${x(p.objetivo||'—')}</div></div>
       <div class="is"><div class="il">Aplicação</div><div class="it">${x(p.aplicacao||'—')}</div></div>
       <div class="is"><div class="il">Referências</div><div class="it">${x(p.referencias||'—')}</div></div>
+      ${p.arquivo_path?`<div class="is"><div class="il">Documento anexo</div><button class="video-link-btn" onclick="openPopAnexo(${p.id})">📄 Baixar / abrir: ${x(p.arquivo_nome||'documento')}</button></div>`:''}
     </div>
     <div id="pv-passos" class="tp"><div class="is"><div class="il">Sequência de execução</div>${steps.map((s,i)=>`<div class="step-row"><div class="sn">${i+1}</div><div><div class="st">${x(s.t||'')}</div><div class="sd">${x(s.d||'')}</div></div></div>`).join('')||'<p style="font-size:13px;color:var(--t3)">Nenhum passo.</p>'}</div></div>
     <div id="pv-cl" class="tp"><div class="is"><div class="il">Lista de verificação</div><div class="cl-prog"><span id="cl-txt">0 de ${cl.length}</span><div class="pb"><div class="pf" id="cl-pf" style="width:0%"></div></div></div>${cl.map(c=>`<div class="cl-item" onclick="toggleCL(this,${cl.length})"><div class="cl-box">✓</div><span class="cl-lbl">${x(c)}</span></div>`).join('')}</div></div>
@@ -1154,26 +1157,51 @@ function openEditPop(id){
   document.getElementById('fPcat').value=p.categoria||'Estoque';document.getElementById('fPbadge').value=p.badge||'new';document.getElementById('fPstripe').value=p.stripe||'s-navy';
   (p.steps||[]).forEach(s=>addStepF(s.t||'',s.d||''));(p.checklist||[]).forEach(c=>addCheckF(c));
   if(!(p.steps||[]).length)addStepF();if(!(p.checklist||[]).length)addCheckF();
+  const fh=document.getElementById('fPfileHint');if(fh)fh.innerHTML=p.arquivo_nome?('📎 Anexo atual: <b>'+x(p.arquivo_nome)+'</b> — escolha um arquivo só se quiser substituir.'):'Opcional. Word ou PDF do procedimento (máx. 20 MB).';
   openOv('formPopOv');document.getElementById('formPopOv').querySelector('.modal').scrollTop=0;
 }
-function clearPopForm(){['fPcode','fPtitle','fPdesc','fPperiod','fPresp','fPrev','fPobj','fPaplic','fPref','fPvideo','fPrevNota'].forEach(id=>document.getElementById(id).value='');['stepsWrap','checkWrap'].forEach(id=>document.getElementById(id).innerHTML='');}
+function clearPopForm(){['fPcode','fPtitle','fPdesc','fPperiod','fPresp','fPrev','fPobj','fPaplic','fPref','fPvideo','fPrevNota'].forEach(id=>document.getElementById(id).value='');['stepsWrap','checkWrap'].forEach(id=>document.getElementById(id).innerHTML='');const ff=document.getElementById('fPfile');if(ff)ff.value='';const fh=document.getElementById('fPfileHint');if(fh)fh.innerHTML='Opcional. Word ou PDF do procedimento (máx. 20 MB). Exige login real do Supabase.';}
 function addStepF(t='',d2=''){const c=document.getElementById('stepsWrap'),n=c.querySelectorAll('.row-item').length+1,d=document.createElement('div');d.className='row-item';d.innerHTML=`<button type="button" class="btn-rm" onclick="this.parentElement.remove();reNum()">✕</button><div class="rin">${n}</div><input class="fi step-t" value="${x(t)}" placeholder="Título do passo" style="margin-bottom:6px"><textarea class="fta step-d" rows="2" placeholder="Descrição detalhada...">${x(d2)}</textarea>`;c.appendChild(d);}
 function reNum(){document.querySelectorAll('.rin').forEach((b,i)=>b.textContent=i+1);}
 function addCheckF(v=''){const c=document.getElementById('checkWrap'),d=document.createElement('div');d.className='cl-row';d.innerHTML=`<input class="fi check-v" value="${x(v)}" placeholder="Item a verificar..."><button type="button" class="btn-rm-cl" onclick="this.parentElement.remove()">✕</button>`;c.appendChild(d);}
-function savePop(){
+async function savePop(){
   const id=document.getElementById('fPid').value,code=document.getElementById('fPcode').value.trim(),title=document.getElementById('fPtitle').value.trim(),desc=document.getElementById('fPdesc').value.trim();
   if(!code||!title||!desc){toast('Preencha código, título e descrição.','error');return;}
   const steps=[...document.querySelectorAll('#stepsWrap .row-item')].map(el=>({t:el.querySelector('.step-t')?.value.trim()||'',d:el.querySelector('.step-d')?.value.trim()||''})).filter(s=>s.t);
   const checklist=[...document.querySelectorAll('#checkWrap .check-v')].map(i=>i.value.trim()).filter(Boolean);
   const revNota=document.getElementById('fPrevNota').value.trim();
   const revEntry={rev:document.getElementById('fPrev').value.trim(),data:new Date().toLocaleDateString('pt-BR',{month:'short',year:'numeric'}),autor:CU.email.split('@')[0],nota:revNota||'Atualização'};
-  const payload={code,title,desc,categoria:document.getElementById('fPcat').value,periodicidade:document.getElementById('fPperiod').value.trim(),responsavel:document.getElementById('fPresp').value.trim(),rev:document.getElementById('fPrev').value.trim(),rev_date:new Date().toLocaleDateString('pt-BR',{month:'short',year:'numeric'}),badge:document.getElementById('fPbadge').value,stripe:document.getElementById('fPstripe').value,objetivo:document.getElementById('fPobj').value.trim(),aplicacao:document.getElementById('fPaplic').value.trim(),referencias:document.getElementById('fPref').value.trim(),video_url:document.getElementById('fPvideo').value.trim()||'',steps,checklist};
-  if(id){const idx=POPS.findIndex(p=>p.id==id);const old=POPS[idx];POPS[idx]={...old,...payload,revisoes:[revEntry,...(old.revisoes||[])]};toast('POP atualizado!','success');}
-  else{POPS.unshift({id:ni.p++,...payload,revisoes:[revEntry]});toast('POP criado!','success');}
+  const oldPop=id?POPS.find(p=>p.id==id):null;
+  const revisoes=id?[revEntry,...((oldPop&&oldPop.revisoes)||[])]:[revEntry];
+  const isReal=!!(CU&&!CU.pass&&sb);
+  const payload={code,title,desc,categoria:document.getElementById('fPcat').value,periodicidade:document.getElementById('fPperiod').value.trim(),responsavel:document.getElementById('fPresp').value.trim(),rev:document.getElementById('fPrev').value.trim(),rev_date:new Date().toLocaleDateString('pt-BR',{month:'short',year:'numeric'}),badge:document.getElementById('fPbadge').value,stripe:document.getElementById('fPstripe').value,objetivo:document.getElementById('fPobj').value.trim(),aplicacao:document.getElementById('fPaplic').value.trim(),referencias:document.getElementById('fPref').value.trim(),video_url:document.getElementById('fPvideo').value.trim()||'',steps,checklist,arquivo_path:(oldPop&&oldPop.arquivo_path)||null,arquivo_nome:(oldPop&&oldPop.arquivo_nome)||null};
+  // anexo Word/PDF (opcional)
+  const fileEl=document.getElementById('fPfile'),file=fileEl&&fileEl.files[0];
+  if(file){
+    if(!isReal){toast('Anexos exigem login real do Supabase (não o modo demo).','error');return;}
+    const lbl=document.getElementById('fPsaveLbl'),prevLbl=lbl.textContent;lbl.textContent='Enviando anexo...';
+    try{
+      const ext=(file.name.split('.').pop()||'dat').toLowerCase();
+      const path='pops/'+code.replace(/[^a-zA-Z0-9_-]/g,'_')+'-'+Date.now()+'.'+ext;
+      const up=await sb.storage.from('procedimentos').upload(path,file,{upsert:true,contentType:file.type||'application/octet-stream'});
+      if(up.error)throw up.error;
+      payload.arquivo_path=path;payload.arquivo_nome=file.name;
+    }catch(e){lbl.textContent=prevLbl;toast('Falha ao enviar anexo: '+(e.message||e),'error');return;}
+    lbl.textContent=prevLbl;
+  }
+  if(id){const idx=POPS.findIndex(p=>p.id==id);POPS[idx]={...POPS[idx],...payload,revisoes};toast('POP atualizado!','success');}
+  else{POPS.unshift({id:ni.p++,...payload,revisoes});toast('POP criado!','success');}
   closeOv('formPopOv');renderPops(POPS);
-  if(CU&&!CU.pass){const dbp={code:payload.code,title:payload.title,descricao:payload.desc,categoria:payload.categoria,periodicidade:payload.periodicidade,responsavel:payload.responsavel,rev:payload.rev,rev_date:payload.rev_date,badge:payload.badge,stripe:payload.stripe,objetivo:payload.objetivo,aplicacao:payload.aplicacao,referencias:payload.referencias,video_url:payload.video_url||null,steps:payload.steps,checklist:payload.checklist,revisoes:revisoes,updated_by:CU.id};if(id){sb.from('pops').update(dbp).eq('id',id).catch(e=>console.warn(e));}else{sb.from('pops').insert([dbp]).select('id').single().then(r=>{if(r.data)POPS[0].id=r.data.id;}).catch(e=>console.warn(e));}}
+  if(isReal){const dbp={code:payload.code,title:payload.title,descricao:payload.desc,categoria:payload.categoria,periodicidade:payload.periodicidade,responsavel:payload.responsavel,rev:payload.rev,rev_date:payload.rev_date,badge:payload.badge,stripe:payload.stripe,objetivo:payload.objetivo,aplicacao:payload.aplicacao,referencias:payload.referencias,video_url:payload.video_url||null,steps:payload.steps,checklist:payload.checklist,revisoes:revisoes,arquivo_path:payload.arquivo_path,arquivo_nome:payload.arquivo_nome,updated_by:CU.id};if(id){sb.from('pops').update(dbp).eq('id',id).catch(e=>console.warn(e));}else{sb.from('pops').insert([dbp]).select('id').single().then(r=>{if(r.data)POPS[0].id=r.data.id;}).catch(e=>console.warn(e));}}
 }
-async function delPop(id){if(!await confirm2('Excluir POP','Esta ação é irreversível. Confirmar?'))return;POPS=POPS.filter(p=>p.id!==id);renderPops(POPS);toast('POP excluído.','info');}
+async function openPopAnexo(id){
+  const p=POPS.find(v=>v.id===id);if(!p||!p.arquivo_path)return;
+  if(!(CU&&!CU.pass&&sb)){toast('Faça login com o Supabase para abrir o anexo.','error');return;}
+  toast('Abrindo documento...','info');
+  try{const {data,error}=await sb.storage.from('procedimentos').createSignedUrl(p.arquivo_path,3600);if(error)throw error;window.open(data.signedUrl,'_blank');}
+  catch(e){toast('Não foi possível abrir o anexo: '+(e.message||e),'error');}
+}
+async function delPop(id){if(!await confirm2('Excluir POP','Esta ação é irreversível. Confirmar?'))return;const p=POPS.find(v=>v.id===id);POPS=POPS.filter(p=>p.id!==id);renderPops(POPS);toast('POP excluído.','info');if(CU&&!CU.pass){sb.from('pops').delete().eq('id',id).catch(e=>console.warn(e));if(p&&p.arquivo_path)sb.storage.from('procedimentos').remove([p.arquivo_path]).catch(()=>{});}}
 
 // OBRAS
 const SBM={Ativa:'b-ativa',Encerrada:'b-encerrada','Em andamento':'b-andamento'};
@@ -1221,7 +1249,7 @@ function saveObra(){
   closeOv('formObraOv');renderObras(OBRAS);updObraSelect();
   if(CU&&!CU.pass){if(id){sb.from('obras').update(payload).eq('id',id).catch(e=>console.warn(e));}else{sb.from('obras').insert([payload]).select('id').single().then(r=>{if(r.data)OBRAS[0].id=r.data.id;}).catch(e=>console.warn(e));}}
 }
-async function delObra(id){if(!await confirm2('Excluir Obra','Confirmar?'))return;OBRAS=OBRAS.filter(o=>o.id!==id);renderObras(OBRAS);updObraSelect();toast('Obra excluída.','info');}
+async function delObra(id){if(!await confirm2('Excluir Obra','Confirmar?'))return;OBRAS=OBRAS.filter(o=>o.id!==id);renderObras(OBRAS);updObraSelect();toast('Obra excluída.','info');if(CU&&!CU.pass)sb.from('obras').delete().eq('id',id).catch(e=>console.warn(e));}
 function updObraSelect(){const s=document.getElementById('fMobra');s.innerHTML='<option value="">Selecione...</option>'+OBRAS.map(o=>`<option value="${o.id}">Obra ${o.numero} — ${o.nome}</option>`).join('');}
 
 // EQUIPE
@@ -1249,8 +1277,8 @@ function renderEquipe(list){
 function filterEquipe(){const q=document.getElementById('equipeSearch').value.toLowerCase();renderEquipe(EQUIPE.filter(m=>{const o=OBRAS.find(ob=>ob.id===m.obra_id);return!q||m.nome?.toLowerCase().includes(q)||m.cargo?.toLowerCase().includes(q)||o?.nome?.toLowerCase().includes(q)||o?.numero?.toLowerCase().includes(q);}));}
 function openNewMembro(){document.getElementById('fMtitle').textContent='Novo Membro';document.getElementById('fMid').value='';document.getElementById('fMsaveLbl').textContent='Salvar';['fMnome','fMcargo','fMtel','fMemail'].forEach(id=>document.getElementById(id).value='');updObraSelect();document.getElementById('fMobra').value='';openOv('formMembroOv');}
 function openEditMembro(id){const m=EQUIPE.find(v=>v.id===id);if(!m)return;document.getElementById('fMtitle').textContent='Editar Membro';document.getElementById('fMid').value=id;document.getElementById('fMsaveLbl').textContent='Salvar alterações';document.getElementById('fMnome').value=m.nome||'';document.getElementById('fMcargo').value=m.cargo||'';document.getElementById('fMtel').value=m.telefone||'';document.getElementById('fMemail').value=m.email||'';updObraSelect();document.getElementById('fMobra').value=m.obra_id||'';openOv('formMembroOv');}
-function saveMembro(){const id=document.getElementById('fMid').value,nome=document.getElementById('fMnome').value.trim(),cargo=document.getElementById('fMcargo').value.trim();if(!nome||!cargo){toast('Preencha nome e cargo.','error');return;}const obra_id=parseInt(document.getElementById('fMobra').value)||null;const payload={nome,cargo,telefone:document.getElementById('fMtel').value.trim(),email:document.getElementById('fMemail').value.trim(),obra_id};if(id){const idx=EQUIPE.findIndex(m=>m.id==id);EQUIPE[idx]={...EQUIPE[idx],...payload};toast('Membro atualizado!','success');}else{EQUIPE.unshift({id:ni.e++,...payload});toast('Membro cadastrado!','success');}closeOv('formMembroOv');renderEquipe(EQUIPE);}
-async function delMembro(id){if(!await confirm2('Remover membro','Confirmar?'))return;EQUIPE=EQUIPE.filter(m=>m.id!==id);renderEquipe(EQUIPE);toast('Membro removido.','info');}
+function saveMembro(){const id=document.getElementById('fMid').value,nome=document.getElementById('fMnome').value.trim(),cargo=document.getElementById('fMcargo').value.trim();if(!nome||!cargo){toast('Preencha nome e cargo.','error');return;}const obra_id=parseInt(document.getElementById('fMobra').value)||null;const payload={nome,cargo,telefone:document.getElementById('fMtel').value.trim(),email:document.getElementById('fMemail').value.trim(),obra_id};let _newMembro=null;if(id){const idx=EQUIPE.findIndex(m=>m.id==id);EQUIPE[idx]={...EQUIPE[idx],...payload};toast('Membro atualizado!','success');}else{_newMembro={id:ni.e++,...payload};EQUIPE.unshift(_newMembro);toast('Membro cadastrado!','success');}closeOv('formMembroOv');renderEquipe(EQUIPE);if(CU&&!CU.pass){if(id){sb.from('equipe').update(payload).eq('id',id).catch(e=>console.warn(e));}else{sb.from('equipe').insert([payload]).select('id').single().then(r=>{if(r.data&&_newMembro)_newMembro.id=r.data.id;}).catch(e=>console.warn(e));}}}
+async function delMembro(id){if(!await confirm2('Remover membro','Confirmar?'))return;EQUIPE=EQUIPE.filter(m=>m.id!==id);renderEquipe(EQUIPE);toast('Membro removido.','info');if(CU&&!CU.pass)sb.from('equipe').delete().eq('id',id).catch(e=>console.warn(e));}
 
 // POLÍTICA DE ESTOQUE — DEFINIÇÕES
 function renderDefs(){
@@ -1269,11 +1297,13 @@ function openEditDef(id){const d=DEFS.find(v=>v.id===id);if(!d)return;document.g
 function saveDef(){
   const id=document.getElementById('fDid').value,termo=document.getElementById('fDtermo').value.trim(),texto=document.getElementById('fDtexto').value.trim();
   if(!termo||!texto){toast('Preencha título e definição.','error');return;}
+  let _newDef=null;
   if(id){const idx=DEFS.findIndex(d=>d.id==id);DEFS[idx]={...DEFS[idx],termo,texto};toast('Definição atualizada!','success');}
-  else{DEFS.push({id:ni.d++,termo,texto});toast('Definição criada!','success');}
+  else{_newDef={id:ni.d++,termo,texto,ordem:DEFS.length};DEFS.push(_newDef);toast('Definição criada!','success');}
   closeOv('formDefOv');renderDefs();
+  if(CU&&!CU.pass){if(id){sb.from('definicoes').update({termo,texto}).eq('id',id).catch(e=>console.warn(e));}else{sb.from('definicoes').insert([{termo,texto,ordem:_newDef.ordem}]).select('id').single().then(r=>{if(r.data&&_newDef)_newDef.id=r.data.id;}).catch(e=>console.warn(e));}}
 }
-async function delDef(id){if(!await confirm2('Excluir definição','Confirmar?'))return;DEFS=DEFS.filter(d=>d.id!==id);renderDefs();toast('Definição excluída.','info');}
+async function delDef(id){if(!await confirm2('Excluir definição','Confirmar?'))return;DEFS=DEFS.filter(d=>d.id!==id);renderDefs();toast('Definição excluída.','info');if(CU&&!CU.pass)sb.from('definicoes').delete().eq('id',id).catch(e=>console.warn(e));}
 
 // POLÍTICA DE ESTOQUE — OBRIGAÇÕES
 function renderObgs(){
@@ -1303,11 +1333,13 @@ function openEditObg(id){const o=OBGS.find(v=>v.id===id);if(!o)return;document.g
 function saveObg(){
   const id=document.getElementById('fGid').value,titulo=document.getElementById('fGtitulo').value.trim(),texto=document.getElementById('fGtexto').value.trim();
   if(!titulo||!texto){toast('Preencha título e descrição.','error');return;}
+  let _newObg=null;
   if(id){const idx=OBGS.findIndex(o=>o.id==id);OBGS[idx]={...OBGS[idx],titulo,texto};toast('Obrigação atualizada!','success');}
-  else{OBGS.push({id:ni.g++,titulo,texto});toast('Obrigação criada!','success');}
+  else{_newObg={id:ni.g++,titulo,texto,ordem:OBGS.length};OBGS.push(_newObg);toast('Obrigação criada!','success');}
   closeOv('formObgOv');renderObgs();
+  if(CU&&!CU.pass){if(id){sb.from('obrigacoes').update({titulo,texto}).eq('id',id).catch(e=>console.warn(e));}else{sb.from('obrigacoes').insert([{titulo,texto,ordem:_newObg.ordem}]).select('id').single().then(r=>{if(r.data&&_newObg)_newObg.id=r.data.id;}).catch(e=>console.warn(e));}}
 }
-async function delObg(id){if(!await confirm2('Excluir obrigação','Confirmar?'))return;OBGS=OBGS.filter(o=>o.id!==id);renderObgs();toast('Obrigação excluída.','info');}
+async function delObg(id){if(!await confirm2('Excluir obrigação','Confirmar?'))return;OBGS=OBGS.filter(o=>o.id!==id);renderObgs();toast('Obrigação excluída.','info');if(CU&&!CU.pass)sb.from('obrigacoes').delete().eq('id',id).catch(e=>console.warn(e));}
 
 // DOWNLOAD / IMPRESSÃO DO PDF DA POLÍTICA DE ESTOQUE
 function downloadPoliticaPDF(){
